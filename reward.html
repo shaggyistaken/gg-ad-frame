@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- Glaze Games rewarded-video frame. The AppLixir SDK (Google IMA, its own
+     Prebid, a consent notice) runs here, on a different origin from
+     glazegames.com, so nothing it loads can reach the site's pages, cookies
+     or APIs. It reports ad lifecycle events to the parent with postMessage
+     and only talks to the origins listed below. -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Advertisement</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #10122e; overflow: hidden; }
+  #applixir-ad-container { position: fixed; inset: 0; }
+</style>
+</head>
+<body>
+<div id="applixir-ad-container"></div>
+<script>
+(function () {
+  var API_KEY = '05bf7096-d7b1-49e2-906c-d89ec358184e';
+  var ALLOWED = ['https://glazegames.com', 'https://www.glazegames.com', 'http://localhost:3000'];
+  var pub = new URLSearchParams(location.hash.slice(1)).get('pub');
+  if (window.parent === window || ALLOWED.indexOf(pub) === -1) return; // only ever runs framed by the site
+  function tell(type, detail) {
+    try {
+      window.parent.postMessage({ source: 'gg-applixir', type: type, detail: detail || null }, pub);
+    } catch (e) { /* parent gone */ }
+  }
+  var s = document.createElement('script');
+  s.src = 'https://cdn.applixir.com/applixir.app.v6.1.0.js';
+  s.async = true;
+  s.onerror = function () { tell('error', 'sdk_load_failed'); };
+  s.onload = function () {
+    if (typeof window.initializeAndOpenPlayer !== 'function') { tell('error', 'sdk_missing'); return; }
+    try {
+      window.initializeAndOpenPlayer({
+        apiKey: API_KEY,
+        injectionElementId: 'applixir-ad-container',
+        // status is an object; only type "complete" means watched to the end.
+        adStatusCallbackFn: function (status) {
+          tell('status', status && status.type ? String(status.type) : 'unknown');
+        },
+        adErrorCallbackFn: function (err) {
+          var type = 'ad_error';
+          try { type = String(err.getError().data.type || type); } catch (e) { /* keep default */ }
+          tell('error', type);
+        },
+      });
+      tell('opened');
+    } catch (e) {
+      tell('error', 'init_threw');
+    }
+  };
+  document.head.appendChild(s);
+})();
+</script>
+</body>
+</html>
