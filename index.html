@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- Glaze Games ad frame. Header-bidding creatives for glazegames.com render
+     here, on a different origin from the site, so a creative can never reach
+     the site's pages, cookies or APIs. The page holds no content of its own:
+     it asks the parent page's Prebid for one ad (by id) over a MessageChannel
+     and draws it. It only talks to the origins listed below. -->
+<html><head><meta charset="utf-8"><meta name="robots" content="noindex"><title>Advertisement</title></head>
+<body style="margin:0;overflow:hidden">
+<script>
+(function () {
+  var ALLOWED = ['https://glazegames.com', 'https://www.glazegames.com', 'http://localhost:3000'];
+  if (window.parent === window) return;
+  var params = new URLSearchParams(location.hash.slice(1));
+  var adId = params.get('adId');
+  var pub = params.get('pub');
+  if (!adId || ALLOWED.indexOf(pub) === -1) return;
+
+  function mkFrame(doc, attrs) {
+    var frame = doc.createElement('iframe');
+    var base = { frameborder: 0, scrolling: 'no', marginheight: 0, marginwidth: 0, TOPMARGIN: 0, LEFTMARGIN: 0, allowtransparency: 'true' };
+    Object.keys(base).forEach(function (k) { frame.setAttribute(k, base[k]); });
+    Object.keys(attrs).forEach(function (k) { frame.setAttribute(k, attrs[k]); });
+    return frame;
+  }
+  function sendMessage(type, payload, onResponse) {
+    var channel = new MessageChannel();
+    if (onResponse) channel.port1.onmessage = guard(onResponse);
+    var body = { message: type, adId: adId };
+    Object.keys(payload || {}).forEach(function (k) { body[k] = payload[k]; });
+    window.parent.postMessage(JSON.stringify(body), pub, [channel.port2]);
+  }
+  function onError(e) {
+    sendMessage('Prebid Event', {
+      event: 'adRenderFailed',
+      info: { reason: (e && e.reason) || 'exception', message: e && e.message },
+    });
+  }
+  function guard(fn) {
+    return function () { try { return fn.apply(this, arguments); } catch (e) { onError(e); } };
+  }
+  function onResponse(ev) {
+    var data;
+    try { data = JSON.parse(ev.data); } catch (e) { return; }
+    if (!data || data.message !== 'Prebid Response' || data.adId !== adId) return;
+    // Prebid ships its own display renderer as source; it runs in a hidden
+    // child frame of this (already isolated) page and draws into this window.
+    var renderer = mkFrame(document, { width: 0, height: 0, style: 'display: none', srcdoc: '<script>' + data.renderer + '<\/script>' });
+    renderer.onload = guard(function () {
+      var W = renderer.contentWindow;
+      W.Promise.resolve(W.render(data, { sendMessage: sendMessage, mkFrame: mkFrame }, window)).then(
+        function () { sendMessage('Prebid Event', { event: 'adRenderSucceeded' }); },
+        onError
+      );
+    });
+    document.body.appendChild(renderer);
+  }
+  sendMessage('Prebid Request', { options: {} }, onResponse);
+})();
+</script>
+</body></html>
